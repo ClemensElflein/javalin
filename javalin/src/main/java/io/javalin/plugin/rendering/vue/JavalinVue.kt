@@ -69,29 +69,16 @@ object JavalinVue {
     internal fun getAllDependencies(paths: Set<Path>) = paths.filter { it.isVueFile() }
             .joinToString("") { "\n<!-- ${it.fileName} -->\n" + it.readText() }
 
-    internal fun getState(ctx: Context, state: Any?) = "\n<script>\n" +
-        "Vue.prototype.\$javalin = JSON.parse(decodeURIComponent(\"${
-            JavalinJson.toJson(
-                mapOf(
-                    "pathParams" to ctx.pathParamMap(),
-                    "queryParams" to ctx.queryParamMap(),
-                    "state" to (state ?: stateFunction(ctx))
-                )
-            ).uriEncodeForJavascript()}\"))\n</script>\n"
-
-    // Unfortunately, Java's URLEncoder does not encode the space character in the same way as Javascript.
-    // Javascript expects a space character to be encoded as "%20", whereas Java encodes it as "+".
-    // All other encodings are implemented correctly, therefore we can simply replace the character in the encoded String.
-    private fun String.uriEncodeForJavascript() =
-        URLEncoder.encode(this, Charsets.UTF_8.name()).replace("+","%20")
-
     private fun String.replaceWebjarsWithCdn() =
             this.replace("@cdnWebjar/", if (isDev == true) "/webjars/" else "https://cdn.jsdelivr.net/webjars/org.webjars.npm/")
 
 }
 
 
-class VueComponent @JvmOverloads constructor(private val component: String, private val state: Any? = null) : Handler {
+class VueComponent constructor(private val component: String, private val componentStateFunction: (Context) -> Any?) : Handler {
+
+    @JvmOverloads constructor(component: String, state: Any? = null) : this(component, {state})
+
     override fun handle(ctx: Context) {
         JavalinVue.isDev = JavalinVue.isDev ?: JavalinVue.isDevFunction(ctx)
         JavalinVue.vueDirPath = JavalinVue.vueDirPath ?: PathMaster.defaultLocation(JavalinVue.isDev)
@@ -105,8 +92,24 @@ class VueComponent @JvmOverloads constructor(private val component: String, priv
             return
         }
         ctx.header(Header.CACHE_CONTROL, JavalinVue.cacheControl)
-        ctx.html(view.replace("@serverState", JavalinVue.getState(ctx, state)).replace("@routeComponent", routeComponent)) // insert current route component
+        ctx.html(view.replace("@serverState", getState(ctx)).replace("@routeComponent", routeComponent)) // insert current route component
     }
+
+    private fun getState(ctx: Context) = "\n<script>\n" +
+            "Vue.prototype.\$javalin = JSON.parse(decodeURIComponent(\"${
+                JavalinJson.toJson(
+                    mapOf(
+                        "pathParams" to ctx.pathParamMap(),
+                        "queryParams" to ctx.queryParamMap(),
+                        "state" to (componentStateFunction(ctx) ?: JavalinVue.stateFunction(ctx))
+                    )
+                ).uriEncodeForJavascript()}\"))\n</script>\n"
+
+    // Unfortunately, Java's URLEncoder does not encode the space character in the same way as Javascript.
+    // Javascript expects a space character to be encoded as "%20", whereas Java encodes it as "+".
+    // All other encodings are implemented correctly, therefore we can simply replace the character in the encoded String.
+    private fun String.uriEncodeForJavascript() =
+        URLEncoder.encode(this, Charsets.UTF_8.name()).replace("+","%20")
 }
 
 object PathMaster {

@@ -68,7 +68,7 @@ class TestJavalinVue {
     }
 
     @Test
-    fun `vue component with component-specific state`() = TestUtil.test { app, http ->
+    fun `vue component with component-specific static state`() = TestUtil.test { app, http ->
         val encodedEmptyState = """{"pathParams":{},"queryParams":{},"state":{}}""".uriEncodeForJavascript()
 
         val encodedTestState = """{"pathParams":{},"queryParams":{},"state":{"test":"tast"}}""".uriEncodeForJavascript()
@@ -79,6 +79,31 @@ class TestJavalinVue {
         val specificStateRes = http.getBody("/specific-state")
         assertThat(noStateRes).contains(encodedEmptyState)
         assertThat(specificStateRes).contains(encodedTestState)
+    }
+
+    @Test
+    fun `vue component with component-specific dynamic state`() = TestUtil.test { app, http ->
+        val encodedTestState1 = """{"pathParams":{},"queryParams":{},"state":{"test":"test1"}}""".uriEncodeForJavascript()
+        val encodedTestState2 = """{"pathParams":{},"queryParams":{},"state":{"test":"test2"}}""".uriEncodeForJavascript()
+        val encodedTestState3 = """{"pathParams":{},"queryParams":{},"state":{"test":"test3"}}""".uriEncodeForJavascript()
+
+        val states = mutableListOf(
+            mapOf("test" to "test1"),
+            mapOf("test" to "test2"),
+            mapOf("test" to "test3")
+        )
+
+        app.get("/dynamic-state", VueComponent("<test-component></test-component>") { _ ->
+            states.removeAt(0)
+        })
+
+        val stateRes1 = http.getBody("/dynamic-state")
+        val stateRes2 = http.getBody("/dynamic-state")
+        val stateRes3 = http.getBody("/dynamic-state")
+
+        assertThat(stateRes1).contains(encodedTestState1)
+        assertThat(stateRes2).contains(encodedTestState2)
+        assertThat(stateRes3).contains(encodedTestState3)
     }
 
     @Test
