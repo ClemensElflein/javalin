@@ -20,7 +20,10 @@ import java.nio.file.Files
 import java.nio.file.Path
 import java.util.regex.Matcher
 
-class VueComponent @JvmOverloads constructor(val component: String, val state: Any? = null) : Handler {
+class VueComponent constructor(val component: String, val componentStateFunction: (Context) -> Any?) : Handler {
+
+    @JvmOverloads constructor(component: String, state: Any? = null) : this(component, { state })
+
     override fun handle(ctx: Context) {
         isDev = isDev ?: isDevFunction(ctx)
         rootDirectory = rootDirectory ?: PathMaster.defaultLocation(isDev)
@@ -34,11 +37,24 @@ class VueComponent @JvmOverloads constructor(val component: String, val state: A
                 .inlineFiles(allFiles.filterNot { it.isVueFile() }) // we then inline css/js files
                 .replace("@componentRegistration", "@componentRegistration@serverState") // add @serverState anchor for later
                 .replace("@componentRegistration", dependencies) // add all dependencies
-                .replace("@serverState", getState(ctx, state)) // add the way too complex state
+                .replace("@serverState", getState(ctx)) // add the way too complex state
                 .replace("@routeComponent", routeComponent) // finally, add the route component itself
                 .replace("@cdnWebjar/", if (isDev == true) "/webjars/" else "https://cdn.jsdelivr.net/webjars/org.webjars.npm/")
         ).header(Header.CACHE_CONTROL, cacheControl)
     }
+
+
+    private fun getState(ctx: Context) = "\n<script>\n" +
+            "Vue.prototype.\$javalin = JSON.parse(decodeURIComponent(\"${
+                urlEncodeForJavascript(JavalinJson.toJson(
+                    mapOf(
+                        "pathParams" to ctx.pathParamMap(),
+                        "queryParams" to ctx.queryParamMap(),
+                        "state" to stateFunction(ctx),
+                        "componentState" to componentStateFunction(ctx)
+                    )
+                ))
+            }\"))\n</script>\n"
 }
 
 private fun Set<Path>.joinVueFiles() = this.filter { it.isVueFile() }.joinToString("") { "\n<!-- ${it.fileName} -->\n" + it.readText() }
@@ -64,16 +80,6 @@ object FileInliner {
     }
 }
 
-internal fun getState(ctx: Context, state: Any?) = "\n<script>\n" +
-        "Vue.prototype.\$javalin = JSON.parse(decodeURIComponent(\"${
-            urlEncodeForJavascript(JavalinJson.toJson(
-                    mapOf(
-                            "pathParams" to ctx.pathParamMap(),
-                            "queryParams" to ctx.queryParamMap(),
-                            "state" to (state ?: stateFunction(ctx))
-                    )
-            ))
-        }\"))\n</script>\n"
 
 // Unfortunately, Java's URLEncoder does not encode the space character in the same way as Javascript.
 // Javascript expects a space character to be encoded as "%20", whereas Java encodes it as "+".
